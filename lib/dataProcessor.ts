@@ -8,7 +8,6 @@ export function parseAndCleanCSV(csvContent: string): {
   const parseResult = Papa.parse<RawCheckRecord>(csvContent, {
     header: true,
     skipEmptyLines: true,
-    trimHeaders: true,
   });
 
   const rawRows = parseResult.data;
