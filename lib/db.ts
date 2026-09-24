@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { CleanedCheckRecord, DashboardStatsSummary, ServiceSLAStats } from './types';
 
-const dbFilePath = path.join(process.cwd(), 'earthre_sla.json');
+const seedDbFilePath = path.join(process.cwd(), 'earthre_sla.json');
+const tempDbFilePath = path.join(os.tmpdir(), 'earthre_sla.json');
 
 export interface StoredRecord extends CleanedCheckRecord {
   id: number;
@@ -13,20 +15,48 @@ interface DBData {
   checks: StoredRecord[];
 }
 
+// In-memory global cache for serverless environments
+let globalMemoryDb: DBData = { nextId: 1, checks: [] };
+
 function readDb(): DBData {
-  if (fs.existsSync(dbFilePath)) {
-    try {
-      const content = fs.readFileSync(dbFilePath, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      return { nextId: 1, checks: [] };
-    }
+  if (globalMemoryDb.checks.length > 0) {
+    return globalMemoryDb;
   }
-  return { nextId: 1, checks: [] };
+
+  // 1. Try reading from temporary writable directory first
+  try {
+    if (fs.existsSync(tempDbFilePath)) {
+      const content = fs.readFileSync(tempDbFilePath, 'utf-8');
+      globalMemoryDb = JSON.parse(content);
+      return globalMemoryDb;
+    }
+  } catch {
+    // Ignore and fallback to seed
+  }
+
+  // 2. Try reading initial seed file if present in project root
+  try {
+    if (fs.existsSync(seedDbFilePath)) {
+      const content = fs.readFileSync(seedDbFilePath, 'utf-8');
+      globalMemoryDb = JSON.parse(content);
+      return globalMemoryDb;
+    }
+  } catch {
+    // Ignore and fallback to empty
+  }
+
+  return globalMemoryDb;
 }
 
 function writeDb(data: DBData) {
-  fs.writeFileSync(dbFilePath, JSON.stringify(data, null, 2));
+  globalMemoryDb = data;
+
+  // Try writing to OS temp folder (allowed in serverless containers like Vercel)
+  try {
+    fs.writeFileSync(tempDbFilePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.warn('File writing skipped due to read-only environment:', err);
+  }
 }
 
 // Helper to insert cleaned records in batch
